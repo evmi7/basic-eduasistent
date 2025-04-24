@@ -1,10 +1,124 @@
-import streamlit as st
+def test_openai_connection():
+    """Funkce pro testování připojení k OpenAI API."""
+    api_key = st.text_input("Testovací API klíč OpenAI", 
+                          value=st.session_state.get('openai_api_key', ''),
+                          type="password",
+                          key="debug_api_key")
+    
+    if st.button("Otestovat spojení"):
+        if not api_key:
+            st.error("Zadejte API klíč pro testování")
+            return
+            
+        st.info("Testování připojení k OpenAI API...")
+        
+        try:
+            # Základní test připojení
+            client = OpenAI(api_key=api_key)
+            models = client.models.list()
+            
+            st.success("✅ Připojení k API je funkční")
+            
+            # Seznam dostupných modelů
+            model_names = [model.id for model in models.data]
+            st.write("Dostupné modely:")
+            st.json(model_names)
+            
+            # Další test - zkusíme jednoduché dokončení
+            st.info("Testování jednoduchého dokončení...")
+            completion = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Řekni ahoj"}],
+                max_tokens=10
+            )
+            
+            if completion.choices and len(completion.choices) > 0:
+                st.success(f"✅ API odpověď: {completion.choices[0].message.content}")
+            else:
+                st.warning("⚠️ API vrátilo prázdnou odpověď")
+            
+        except Exception as e:
+            st.error(f"❌ Chyba při testování API: {str(e)}")
+            
+            # Detailní rozbor chyby
+            error_str = str(e)
+            
+            if "401" in error_str:
+                st.error("❌ Neplatný API klíč nebo nedostatečná oprávnění")
+            elif "429" in error_str:
+                st.error("❌ Překročen limit požadavků nebo nedostatečný kredit")
+            elif "500" in error_str or "502" in error_str or "503" in error_str:
+                st.error("❌ Chyba na straně serveru OpenAI")
+            elif "timeout" in error_str.lower():
+                st.error("❌ Vypršel časový limit požadavku")
+                
+            st.info("Pro řešení problému zkontrolujte:\n"
+                   "1. Formát API klíče (měl by začínat 'sk-')\n"
+                   "2. Zda má váš účet dostatečný kredit\n"
+                   "3. Zda je API klíč aktivní\n"
+                   "4. Zda máte povolen přístup k požadovanému modelu")
+            
+    # Sekce pro ruční testování API
+    st.subheader("Ruční test API")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        test_prompt = st.text_area("Testovací prompt:", "Ahoj, jak se máš?", height=100)
+        test_model = st.selectbox("Model:", ["gpt-3.5-turbo", "gpt-4", "gpt-3.5-turbo-16k"])
+        temperature = st.slider("Teplota:", 0.0, 1.0, 0.3)
+    
+    with col2:
+        if st.button("Spustit test"):
+            if not api_key:
+                st.error("Zadejte API klíč pro testování")
+                return
+                
+            try:
+                client = OpenAI(api_key=api_key)
+                st.info("Odesílám požadavek na OpenAI API...")
+                
+                with st.spinner("Čekám na odpověď..."):
+                    start_time = time.time()
+                    
+                    response = client.chat.completions.create(
+                        model=test_model,
+                        messages=[{"role": "user", "content": test_prompt}],
+                        temperature=temperature
+                    )
+                    
+                    end_time = time.time()
+                
+                if response.choices and len(response.choices) > 0:
+                    st.success(f"✅ Odpověď získána za {end_time - start_time:.2f} sekund")
+                    st.text_area("Odpověď:", response.choices[0].message.content, height=200)
+                    st.json({"model": response.model, "finish_reason": response.choices[0].finish_reason})
+                else:
+                    st.warning("⚠️ API vrátilo prázdnou odpověď")
+                    
+            except Exception as e:
+                st.error(f"❌ Chyba: {str(e)}")
+                
+    # Debug informace
+    st.subheader("Systémové informace")
+    import platform
+    import time
+    
+    system_info = {
+        "Python verze": platform.python_version(),
+        "OS": platform.system() + " " + platform.release(),
+        "Čas": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "OpenAI client": OpenAI.__version__ if hasattr(OpenAI, "__version__") else "Unknown"
+    }
+    
+    st.json(system_info)import streamlit as st
 import pandas as pd
 import zipfile
 import io
 import difflib
 import os
 import tempfile
+import time
+import platform
 from openai import OpenAI
 
 def get_openai_client():
@@ -12,13 +126,22 @@ def get_openai_client():
     api_key = st.session_state.get('openai_api_key', '')
     if not api_key:
         return None
-    return OpenAI(api_key=api_key)
+    
+    try:
+        # Testovací volání API k ověření klíče
+        client = OpenAI(api_key=api_key)
+        # Jednoduchý test, zda API klíč funguje
+        client.models.list()
+        return client
+    except Exception as e:
+        st.error(f"Chyba při inicializaci OpenAI klienta: {str(e)}")
+        return None
 
 def analyze_text(reference_text, student_text):
     """Použije OpenAI API pro porovnání a analýzu textů."""
     client = get_openai_client()
     if not client:
-        return "Pro AI analýzu je nutné zadat API klíč OpenAI."
+        return "Pro AI analýzu je nutné zadat platný API klíč OpenAI."
     
     prompt = f"""
 Porovnej následující text žáka s ideálním vzorovým textem. Uveď:
@@ -45,7 +168,9 @@ Odpověď formuluj česky, přehledně.
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"Chyba při komunikaci s OpenAI API: {e}"
+        error_message = str(e)
+        st.error(f"Chyba při komunikaci s OpenAI API: {error_message}")
+        return f"Chyba při komunikaci s OpenAI API: {error_message}"
 
 def main():
     st.set_page_config(page_title="Porovnání žákovských prací", layout="wide")
@@ -57,7 +182,7 @@ def main():
     st.title("Nástroj pro porovnávání žákovských prací se vzorovým textem")
     
     # Vytvoření záložek
-    tab1, tab2, tab3 = st.tabs(["Nahrání a porovnání", "Nastavení", "Nápověda"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Nahrání a porovnání", "Nastavení", "Debug API", "Nápověda"])
     
     with tab1:
         col1, col2 = st.columns(2)
@@ -121,8 +246,25 @@ def main():
         if st.button("Uložit API klíč"):
             st.session_state.openai_api_key = api_key
             st.success("API klíč byl uložen.")
+            
+            # Testujeme platnost API klíče
+            if api_key:
+                with st.spinner("Ověřuji platnost API klíče..."):
+                    try:
+                        client = OpenAI(api_key=api_key)
+                        # Jednoduchý test, zda API klíč funguje
+                        client.models.list()
+                        st.success("API klíč je platný a funkční.")
+                    except Exception as e:
+                        st.error(f"API klíč nelze ověřit. Chyba: {str(e)}")
+                        st.info("Ujistěte se, že je API klíč ve formátu 'sk-...' a máte dostatečný kredit na účtu OpenAI.")
     
     with tab3:
+        st.subheader("Testování OpenAI API")
+        st.write("Tato záložka slouží k detailnímu testování a ladění připojení k OpenAI API")
+        test_openai_connection()
+    
+    with tab4:
         zobraz_napovedu()
 
 def porovnej_prace(vzorovy_text, zakovske_prace_zip):
