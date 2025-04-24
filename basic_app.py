@@ -1,5 +1,16 @@
 import streamlit as st
 
+# Pokus o import openai
+try:
+    import openai
+    openai_available = True
+    st.sidebar.success("✅ OpenAI knihovna je k dispozici")
+except ImportError:
+    openai_available = False
+    st.sidebar.error("❌ OpenAI knihovna není k dispozici")
+
+# Zbytek kódu zůstává stejný
+
 # Nastavení stránky
 st.set_page_config(
     page_title="EDUasistent - Základní verze",
