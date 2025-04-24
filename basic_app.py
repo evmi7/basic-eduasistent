@@ -1,235 +1,146 @@
 import streamlit as st
+import pandas as pd
+import zipfile
+import io
+import difflib
+import os
+import tempfile
 
-# DŮLEŽITÉ: set_page_config musí být první Streamlit příkaz v aplikaci
-st.set_page_config(
-    page_title="Analytický nástroj pro práce žáků",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-import re
-from collections import Counter
-import math
-
-# Funkce pro předzpracování textu
-def preprocess_text(text):
-    if not isinstance(text, str):
-        return ""
-    # Převod na malá písmena
-    text = text.lower()
-    # Odstranění interpunkce a čísel
-    text = re.sub(r'[^\w\s]', '', text)
-    text = re.sub(r'\d+', '', text)
-    # Odstranění extra mezer
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-# Funkce pro výpočet podobnosti textů (vlastní implementace kosinové podobnosti)
-def calculate_similarity(text1, text2):
-    # Předzpracování textů
-    processed_text1 = preprocess_text(text1)
-    processed_text2 = preprocess_text(text2)
+def main():
+    st.set_page_config(page_title="Porovnání žákovských prací", layout="wide")
     
-    # Rozdělení na slova
-    words1 = processed_text1.split()
-    words2 = processed_text2.split()
+    st.title("Nástroj pro porovnávání žákovských prací se vzorovým textem")
     
-    # Vytvoření vektorů četnosti slov
-    word_set = set(words1 + words2)
+    # Vytvoření záložek
+    tab1, tab2 = st.tabs(["Nahrání a porovnání", "Nápověda"])
     
-    # Počítání frekvence slov
-    vec1 = {word: words1.count(word) for word in word_set}
-    vec2 = {word: words2.count(word) for word in word_set}
-    
-    # Výpočet kosinové podobnosti
-    dot_product = sum(vec1.get(word, 0) * vec2.get(word, 0) for word in word_set)
-    
-    # Velikost vektorů
-    magnitude1 = math.sqrt(sum(value ** 2 for value in vec1.values()))
-    magnitude2 = math.sqrt(sum(value ** 2 for value in vec2.values()))
-    
-    if magnitude1 == 0 or magnitude2 == 0:
-        return 0
-    
-    return dot_product / (magnitude1 * magnitude2)
-
-# Funkce pro získání klíčových slov
-def get_keywords(text, top_n=10):
-    # Předzpracování textu
-    processed_text = preprocess_text(text)
-    
-    # Rozdělení na slova
-    words = processed_text.split()
-    
-    # Jednoduchý seznam stop slov pro češtinu
-    stop_words = {'a', 'aby', 'ale', 'ani', 'až', 'být', 'co', 'či', 'do', 'i', 'jak', 'je', 'jeho', 'její', 'jejich',
-                 'jen', 'jenž', 'ji', 'jich', 'již', 'jsem', 'jsou', 'k', 'kde', 'když', 'me', 'mezi', 'mi', 'mít',
-                 'mně', 'mnou', 'my', 'na', 'nad', 'nebo', 'neboť', 'než', 'ní', 'o', 'od', 'on', 'ona', 'oni', 'ono',
-                 'po', 'pod', 'podle', 'pokud', 'pro', 'proto', 'protože', 'před', 'při', 's', 'se', 'si', 'svůj',
-                 'ta', 'tak', 'také', 'takže', 'tam', 'tedy', 'ten', 'tento', 'to', 'tohle', 'toto', 'ty', 'u', 'už',
-                 'v', 've', 'však', 'všechen', 'vy', 'z', 'za', 'ze', 'že'}
-    
-    # Filtrace stop slov
-    filtered_words = [word for word in words if word not in stop_words and len(word) > 1]
-    
-    # Počítání frekvence slov
-    word_counts = Counter(filtered_words)
-    
-    # Vrácení top N slov
-    return word_counts.most_common(top_n)
-
-# Funkce pro porovnání klíčových slov
-def compare_keywords(text1, text2, top_n=10):
-    # Získání klíčových slov z obou textů
-    keywords1 = get_keywords(text1, top_n)
-    keywords2 = get_keywords(text2, top_n)
-    
-    # Převod na slovníky pro jednodušší manipulaci
-    keywords1_dict = dict(keywords1)
-    keywords2_dict = dict(keywords2)
-    
-    # Získání množin slov
-    words1_set = set(keywords1_dict.keys())
-    words2_set = set(keywords2_dict.keys())
-    
-    # Nalezení společných a unikátních slov
-    common_words = words1_set.intersection(words2_set)
-    missing_words = words1_set - words2_set
-    extra_words = words2_set - words1_set
-    
-    return keywords1, keywords2, common_words, missing_words, extra_words
-
-# Funkce pro analýzu délky textu
-def analyze_length(text1, text2):
-    if not isinstance(text1, str) or not isinstance(text2, str):
-        return {"text1": 0, "text2": 0, "diff_percent": 0}
-    
-    # Počet slov
-    words1 = len(re.findall(r'\b\w+\b', text1))
-    words2 = len(re.findall(r'\b\w+\b', text2))
-    
-    # Rozdíl v procentech
-    if words1 > 0:
-        diff_percent = ((words2 - words1) / words1) * 100
-    else:
-        diff_percent = 0
-    
-    return {
-        "text1": words1,
-        "text2": words2,
-        "diff_percent": diff_percent
-    }
-
-# Hlavní nadpis aplikace
-st.title("🔍 Analytický nástroj pro porovnávání žákovských prací")
-st.write("Tento nástroj umožňuje porovnat práci žáka se vzorovým řešením a analyzovat podobnosti a rozdíly.")
-
-# Vytvoření záložek pro různé typy analýz
-tab1, tab2 = st.tabs(["Textová analýza", "Nastavení"])
-
-with tab1:
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.header("Vzorové řešení")
-        reference_text = st.text_area("Vložte vzorový text", height=250)
-    
-    with col2:
-        st.header("Práce žáka")
-        student_text = st.text_area("Vložte text žáka", height=250)
-    
-    # Tlačítko pro provedení analýzy
-    if st.button("Provést analýzu"):
-        if reference_text and student_text:
-            st.divider()
-            st.header("Výsledky analýzy")
+    with tab1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Vzorový text")
+            vzorovy_text_upload = st.file_uploader("Nahrajte vzorový text", type=["txt"])
+            vzorovy_text = ""
             
-            # Výpočet podobnosti
-            similarity = calculate_similarity(reference_text, student_text)
-            st.metric("Míra podobnosti", f"{similarity*100:.2f}%")
+            if vzorovy_text_upload is not None:
+                vzorovy_text = vzorovy_text_upload.getvalue().decode("utf-8")
+                st.text_area("Obsah vzorového textu", vzorovy_text, height=300)
+        
+        with col2:
+            st.subheader("Žákovské práce")
+            st.write("Nahrajte ZIP soubor obsahující žákovské práce ve formátu .txt")
+            zakovske_prace_upload = st.file_uploader("Nahrajte ZIP soubor s pracemi", type=["zip"])
             
-            # Analýza délky textu
-            length_analysis = analyze_length(reference_text, student_text)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Počet slov ve vzoru", length_analysis["text1"])
-            with col2:
-                st.metric("Počet slov v práci žáka", length_analysis["text2"])
-            with col3:
-                diff_label = "Rozdíl délky"
-                diff_value = f"{length_analysis['diff_percent']:.2f}%"
-                diff_delta = f"{'+' if length_analysis['diff_percent'] > 0 else ''}{length_analysis['diff_percent']:.2f}%"
-                st.metric(diff_label, diff_value, diff_delta)
-            
-            # Porovnání klíčových slov
-            st.subheader("Porovnání klíčových slov")
-            keywords1, keywords2, common_words, missing_words, extra_words = compare_keywords(reference_text, student_text)
-            
+            if zakovske_prace_upload is not None:
+                st.success(f"Úspěšně nahrán soubor: {zakovske_prace_upload.name}")
+        
+        if vzorovy_text_upload is not None and zakovske_prace_upload is not None:
+            if st.button("Porovnat práce"):
+                with st.spinner("Probíhá porovnávání..."):
+                    vysledky = porovnej_prace(vzorovy_text, zakovske_prace_upload)
+                    zobraz_vysledky(vysledky)
+    
+    with tab2:
+        zobraz_napovedu()
+
+def porovnej_prace(vzorovy_text, zakovske_prace_zip):
+    """Porovná vzorový text s žákovskými pracemi v ZIP souboru."""
+    vysledky = []
+    
+    # Vytvoření dočasného adresáře pro rozbalení ZIP souboru
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        with zipfile.ZipFile(zakovske_prace_zip, 'r') as zip_ref:
+            zip_ref.extractall(tmpdirname)
+        
+        # Procházení všech souborů v dočasném adresáři
+        for filename in os.listdir(tmpdirname):
+            if filename.endswith('.txt'):
+                file_path = os.path.join(tmpdirname, filename)
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    try:
+                        zakovska_prace = file.read()
+                        
+                        # Výpočet podobnosti pomocí difflib
+                        similar = difflib.SequenceMatcher(None, vzorovy_text, zakovska_prace).ratio()
+                        podobnost_procenta = similar * 100
+                        
+                        # Porovnání a získání rozdílů
+                        vzor_lines = vzorovy_text.splitlines()
+                        zak_lines = zakovska_prace.splitlines()
+                        diff = list(difflib.unified_diff(vzor_lines, zak_lines, lineterm=''))
+                        
+                        # Odstranění metadat diff výstupu (prvních pár řádků)
+                        diff = diff[3:] if len(diff) > 3 else []
+                        
+                        # Přidání výsledku do seznamu
+                        vysledky.append({
+                            "jmeno_souboru": filename,
+                            "podobnost": podobnost_procenta,
+                            "diff": '\n'.join(diff),
+                            "text_zaka": zakovska_prace
+                        })
+                    except Exception as e:
+                        st.error(f"Chyba při zpracování souboru {filename}: {str(e)}")
+    
+    # Seřazení výsledků podle podobnosti
+    vysledky.sort(key=lambda x: x["podobnost"], reverse=True)
+    return vysledky
+
+def zobraz_vysledky(vysledky):
+    """Zobrazí výsledky porovnání."""
+    st.header("Výsledky porovnání")
+    
+    # Vytvoření DataFrame pro přehlednou tabulku
+    df = pd.DataFrame([{
+        "Soubor": v["jmeno_souboru"],
+        "Podobnost (%)": round(v["podobnost"], 2)
+    } for v in vysledky])
+    
+    st.dataframe(df)
+    
+    # Zobrazení detailů každé práce
+    st.header("Detaily jednotlivých prací")
+    for i, vysledek in enumerate(vysledky):
+        with st.expander(f"{vysledek['jmeno_souboru']} - Podobnost: {round(vysledek['podobnost'], 2)}%"):
             col1, col2 = st.columns(2)
+            
             with col1:
-                st.write("**Nejčastější slova ve vzoru:**")
-                for word, count in keywords1:
-                    st.write(f"- {word}: {count}x")
+                st.subheader("Text žáka")
+                st.text_area("", vysledek["text_zaka"], height=200, key=f"text_{i}")
             
             with col2:
-                st.write("**Nejčastější slova v práci žáka:**")
-                for word, count in keywords2:
-                    st.write(f"- {word}: {count}x")
-            
-            # Společná a chybějící slova
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**Společná klíčová slova:**")
-                for word in common_words:
-                    st.write(f"- {word}")
-            
-            with col2:
-                st.write("**Chybějící klíčová slova:**")
-                for word in missing_words:
-                    st.write(f"- {word}")
-            
-            st.write("**Nadbytečná klíčová slova v práci žáka:**")
-            for word in extra_words:
-                st.write(f"- {word}")
-        else:
-            st.warning("Pro provedení analýzy je třeba vyplnit oba texty.")
+                st.subheader("Rozdíly")
+                st.text_area("", vysledek["diff"], height=200, key=f"diff_{i}")
+                st.write("Legenda:")
+                st.write("- Řádky začínající `-` jsou ve vzorovém textu, ale chybí v práci žáka")
+                st.write("- Řádky začínající `+` jsou v práci žáka, ale nejsou ve vzorovém textu")
 
-with tab2:
-    st.header("Nastavení analýzy")
-    st.write("Zde můžete upravit parametry analýzy.")
+def zobraz_napovedu():
+    """Zobrazí nápovědu pro použití aplikace."""
+    st.header("Jak používat tento nástroj")
     
-    # Nastavení analýzy
-    st.subheader("Parametry textové analýzy")
-    keyword_count = st.slider(
-        "Počet klíčových slov pro porovnání",
-        min_value=5,
-        max_value=30,
-        value=10,
-        step=1
-    )
-    
-    st.info("Tato nastavení budou použita při další analýze. Změny se projeví po stisknutí tlačítka 'Provést analýzu'.")
-
-# Postranní panel s nápovědou
-with st.sidebar:
-    st.header("Nápověda")
     st.write("""
-    **Jak používat tento nástroj:**
+    ### 1. Příprava souborů
+    - **Vzorový text:** Připravte jeden soubor .txt s vzorovým textem.
+    - **Žákovské práce:** Připravte soubory .txt pro každou žákovskou práci a zabalte je do ZIP souboru.
     
-    1. Vložte vzorové řešení do levého textového pole
-    2. Vložte práci žáka do pravého textového pole
-    3. Klikněte na tlačítko 'Provést analýzu'
-    4. Prozkoumejte výsledky analýzy
+    ### 2. Nahrání souborů
+    - Nahrajte vzorový text pomocí prvního uploaderu.
+    - Nahrajte ZIP soubor s žákovskými pracemi pomocí druhého uploaderu.
     
-    **Co výsledky znamenají:**
+    ### 3. Porovnání
+    - Klikněte na tlačítko "Porovnat práce".
+    - Aplikace porovná všechny žákovské práce se vzorovým textem a zobrazí výsledky.
     
-    - **Míra podobnosti**: Hodnota mezi 0-100%, kde vyšší hodnota znamená větší podobnost textů
-    - **Počet slov**: Porovnání délky textů
-    - **Klíčová slova**: Nejčastější důležitá slova v obou textech
-    - **Společná slova**: Klíčová slova obsažená v obou textech
-    - **Chybějící slova**: Klíčová slova ze vzoru, která chybí v práci žáka
+    ### 4. Interpretace výsledků
+    - **Tabulka podobnosti:** Zobrazuje procentuální podobnost každé práce se vzorovým textem.
+    - **Detaily:** Kliknutím na řádek v tabulce zobrazíte detailní porovnání včetně rozdílů.
+    - **Rozdíly:** 
+        - Řádky začínající `-` jsou ve vzorovém textu, ale chybí v práci žáka.
+        - Řádky začínající `+` jsou v práci žáka, ale nejsou ve vzorovém textu.
     """)
     
-    st.divider()
-    st.write("© 2025 Analytický nástroj pro porovnávání prací")
+    st.info("Poznámka: Tento nástroj je určen pouze pro textové soubory (.txt) v kódování UTF-8.")
+
+if __name__ == "__main__":
+    main()
