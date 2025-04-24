@@ -1,80 +1,4 @@
-def porovnej_prace_ai(vzorovy_text, zakovske_prace_zip):
-    """Porovná vzorový text s žákovskými pracemi v ZIP souboru pomocí AI."""
-    vysledky = []
-    
-    # Vytvoření dočasného adresáře pro rozbalení ZIP souboru
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        with zipfile.ZipFile(zakovske_prace_zip, 'r') as zip_ref:
-            zip_ref.extractall(tmpdirname)
-        
-        # Procházení všech souborů v dočasném adresáři
-        for filename in os.listdir(tmpdirname):
-            if filename.endswith('.txt'):
-                file_path = os.path.join(tmpdirname, filename)
-                
-                # Zkusíme nejprve Windows-1250 a poté další kódování
-                encodings = ['windows-1250', 'cp1250', 'iso-8859-2', 'utf-8']
-                zakovska_prace = None
-                
-                for encoding in encodings:
-                    try:
-                        with open(file_path, 'r', encoding=encoding) as file:
-                            zakovska_prace = file.read()
-                            break
-                    except UnicodeDecodeError:
-                        continue
-                
-                if zakovska_prace is None:
-                    st.warning(f"Nepodařilo se přečíst soubor {filename} s žádným známým kódováním.")
-                    continue
-                
-                try:
-                    # Výpočet podobnosti pomocí difflib pro základní metriku
-                    similar = difflib.SequenceMatcher(None, vzorovy_text, zakovska_prace).ratio()
-                    podobnost_procenta = similar * 100
-                    
-                    # Získání AI analýzy
-                    ai_analyza = analyze_text(vzorovy_text, zakovska_prace)
-                    
-                    # Přidání výsledku do seznamu
-                    vysledky.append({
-                        "jmeno_souboru": filename,
-                        "podobnost": podobnost_procenta,
-                        "text_zaka": zakovska_prace,
-                        "ai_analyza": ai_analyza
-                    })
-                except Exception as e:
-                    st.error(f"Chyba při zpracování souboru {filename}: {str(e)}")
-    
-    # Seřazení výsledků podle podobnosti
-    vysledky.sort(key=lambda x: x["podobnost"], reverse=True)
-    return vysledky
-
-def zobraz_vysledky_ai(vysledky):
-    """Zobrazí výsledky AI analýzy."""
-    st.header("Výsledky AI analýzy")
-    
-    # Vytvoření DataFrame pro přehlednou tabulku
-    df = pd.DataFrame([{
-        "Soubor": v["jmeno_souboru"],
-        "Podobnost (%)": round(v["podobnost"], 2)
-    } for v in vysledky])
-    
-    st.dataframe(df)
-    
-    # Zobrazení detailů každé práce
-    st.header("Detaily jednotlivých prací")
-    for i, vysledek in enumerate(vysledky):
-        with st.expander(f"{vysledek['jmeno_souboru']} - Podobnost: {round(vysledek['podobnost'], 2)}%"):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Text žáka")
-                st.text_area("", vysledek["text_zaka"], height=200, key=f"text_ai_{i}")
-            
-            with col2:
-                st.subheader("AI analýza")
-                st.markdown(vysledek["ai_analyza"], unsafe_allow_html=False)import streamlit as st
+import streamlit as st
 import pandas as pd
 import zipfile
 import io
@@ -258,6 +182,58 @@ def porovnej_prace(vzorovy_text, zakovske_prace_zip):
     vysledky.sort(key=lambda x: x["podobnost"], reverse=True)
     return vysledky
 
+def porovnej_prace_ai(vzorovy_text, zakovske_prace_zip):
+    """Porovná vzorový text s žákovskými pracemi v ZIP souboru pomocí AI."""
+    vysledky = []
+    
+    # Vytvoření dočasného adresáře pro rozbalení ZIP souboru
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        with zipfile.ZipFile(zakovske_prace_zip, 'r') as zip_ref:
+            zip_ref.extractall(tmpdirname)
+        
+        # Procházení všech souborů v dočasném adresáři
+        for filename in os.listdir(tmpdirname):
+            if filename.endswith('.txt'):
+                file_path = os.path.join(tmpdirname, filename)
+                
+                # Zkusíme nejprve Windows-1250 a poté další kódování
+                encodings = ['windows-1250', 'cp1250', 'iso-8859-2', 'utf-8']
+                zakovska_prace = None
+                
+                for encoding in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as file:
+                            zakovska_prace = file.read()
+                            break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if zakovska_prace is None:
+                    st.warning(f"Nepodařilo se přečíst soubor {filename} s žádným známým kódováním.")
+                    continue
+                
+                try:
+                    # Výpočet podobnosti pomocí difflib pro základní metriku
+                    similar = difflib.SequenceMatcher(None, vzorovy_text, zakovska_prace).ratio()
+                    podobnost_procenta = similar * 100
+                    
+                    # Získání AI analýzy
+                    ai_analyza = analyze_text(vzorovy_text, zakovska_prace)
+                    
+                    # Přidání výsledku do seznamu
+                    vysledky.append({
+                        "jmeno_souboru": filename,
+                        "podobnost": podobnost_procenta,
+                        "text_zaka": zakovska_prace,
+                        "ai_analyza": ai_analyza
+                    })
+                except Exception as e:
+                    st.error(f"Chyba při zpracování souboru {filename}: {str(e)}")
+    
+    # Seřazení výsledků podle podobnosti
+    vysledky.sort(key=lambda x: x["podobnost"], reverse=True)
+    return vysledky
+
 def zobraz_vysledky(vysledky):
     """Zobrazí výsledky porovnání."""
     st.header("Výsledky porovnání")
@@ -286,6 +262,32 @@ def zobraz_vysledky(vysledky):
                 st.write("Legenda:")
                 st.write("- Řádky začínající `-` jsou ve vzorovém textu, ale chybí v práci žáka")
                 st.write("- Řádky začínající `+` jsou v práci žáka, ale nejsou ve vzorovém textu")
+
+def zobraz_vysledky_ai(vysledky):
+    """Zobrazí výsledky AI analýzy."""
+    st.header("Výsledky AI analýzy")
+    
+    # Vytvoření DataFrame pro přehlednou tabulku
+    df = pd.DataFrame([{
+        "Soubor": v["jmeno_souboru"],
+        "Podobnost (%)": round(v["podobnost"], 2)
+    } for v in vysledky])
+    
+    st.dataframe(df)
+    
+    # Zobrazení detailů každé práce
+    st.header("Detaily jednotlivých prací")
+    for i, vysledek in enumerate(vysledky):
+        with st.expander(f"{vysledek['jmeno_souboru']} - Podobnost: {round(vysledek['podobnost'], 2)}%"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Text žáka")
+                st.text_area("", vysledek["text_zaka"], height=200, key=f"text_ai_{i}")
+            
+            with col2:
+                st.subheader("AI analýza")
+                st.markdown(vysledek["ai_analyza"], unsafe_allow_html=False)
 
 def zobraz_napovedu():
     """Zobrazí nápovědu pro použití aplikace."""
@@ -319,7 +321,6 @@ def zobraz_napovedu():
     st.info("Poznámka: Aplikace je optimalizována pro soubory v kódování Windows-1250, které je standardem na vaší škole, ale podporuje i další kódování.")
     
     st.warning("Pro použití AI analýzy je nutné zadat platný OpenAI API klíč v záložce Nastavení.")
-
 
 if __name__ == "__main__":
     main()
