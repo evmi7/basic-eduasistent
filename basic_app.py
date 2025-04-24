@@ -23,8 +23,23 @@ def main():
             vzorovy_text = ""
             
             if vzorovy_text_upload is not None:
-                vzorovy_text = vzorovy_text_upload.getvalue().decode("utf-8")
-                st.text_area("Obsah vzorového textu", vzorovy_text, height=300)
+                # Zkusíme nejprve Windows-1250 (preferované ve škole) a poté další kódování
+                encodings = ['windows-1250', 'cp1250', 'iso-8859-2', 'utf-8']
+                vzorovy_text = None
+                
+                for encoding in encodings:
+                    try:
+                        vzorovy_text = vzorovy_text_upload.getvalue().decode(encoding)
+                        st.success(f"Soubor úspěšně přečten s kódováním {encoding}")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if vzorovy_text is None:
+                    st.error("Nepodařilo se přečíst soubor. Zkuste jej uložit v kódování Windows-1250.")
+                    vzorovy_text = ""
+                else:
+                    st.text_area("Obsah vzorového textu", vzorovy_text, height=300)
         
         with col2:
             st.subheader("Žákovské práce")
@@ -56,31 +71,45 @@ def porovnej_prace(vzorovy_text, zakovske_prace_zip):
         for filename in os.listdir(tmpdirname):
             if filename.endswith('.txt'):
                 file_path = os.path.join(tmpdirname, filename)
-                with open(file_path, 'r', encoding='utf-8') as file:
+                
+                # Zkusíme nejprve Windows-1250 a poté další kódování
+                encodings = ['windows-1250', 'cp1250', 'iso-8859-2', 'utf-8']
+                zakovska_prace = None
+                
+                for encoding in encodings:
                     try:
-                        zakovska_prace = file.read()
-                        
-                        # Výpočet podobnosti pomocí difflib
-                        similar = difflib.SequenceMatcher(None, vzorovy_text, zakovska_prace).ratio()
-                        podobnost_procenta = similar * 100
-                        
-                        # Porovnání a získání rozdílů
-                        vzor_lines = vzorovy_text.splitlines()
-                        zak_lines = zakovska_prace.splitlines()
-                        diff = list(difflib.unified_diff(vzor_lines, zak_lines, lineterm=''))
-                        
-                        # Odstranění metadat diff výstupu (prvních pár řádků)
-                        diff = diff[3:] if len(diff) > 3 else []
-                        
-                        # Přidání výsledku do seznamu
-                        vysledky.append({
-                            "jmeno_souboru": filename,
-                            "podobnost": podobnost_procenta,
-                            "diff": '\n'.join(diff),
-                            "text_zaka": zakovska_prace
-                        })
-                    except Exception as e:
-                        st.error(f"Chyba při zpracování souboru {filename}: {str(e)}")
+                        with open(file_path, 'r', encoding=encoding) as file:
+                            zakovska_prace = file.read()
+                            break
+                    except UnicodeDecodeError:
+                        continue
+                
+                if zakovska_prace is None:
+                    st.warning(f"Nepodařilo se přečíst soubor {filename} s žádným známým kódováním.")
+                    continue
+                
+                try:
+                    # Výpočet podobnosti pomocí difflib
+                    similar = difflib.SequenceMatcher(None, vzorovy_text, zakovska_prace).ratio()
+                    podobnost_procenta = similar * 100
+                    
+                    # Porovnání a získání rozdílů
+                    vzor_lines = vzorovy_text.splitlines()
+                    zak_lines = zakovska_prace.splitlines()
+                    diff = list(difflib.unified_diff(vzor_lines, zak_lines, lineterm=''))
+                    
+                    # Odstranění metadat diff výstupu (prvních pár řádků)
+                    diff = diff[3:] if len(diff) > 3 else []
+                    
+                    # Přidání výsledku do seznamu
+                    vysledky.append({
+                        "jmeno_souboru": filename,
+                        "podobnost": podobnost_procenta,
+                        "diff": '\n'.join(diff),
+                        "text_zaka": zakovska_prace
+                    })
+                except Exception as e:
+                    st.error(f"Chyba při zpracování souboru {filename}: {str(e)}")
     
     # Seřazení výsledků podle podobnosti
     vysledky.sort(key=lambda x: x["podobnost"], reverse=True)
@@ -121,7 +150,7 @@ def zobraz_napovedu():
     
     st.write("""
     ### 1. Příprava souborů
-    - **Vzorový text:** Připravte jeden soubor .txt s vzorovým textem.
+    - **Vzorový text:** Připravte jeden soubor .txt s vzorovým textem (ideálně v kódování Windows-1250).
     - **Žákovské práce:** Připravte soubory .txt pro každou žákovskou práci a zabalte je do ZIP souboru.
     
     ### 2. Nahrání souborů
@@ -140,7 +169,8 @@ def zobraz_napovedu():
         - Řádky začínající `+` jsou v práci žáka, ale nejsou ve vzorovém textu.
     """)
     
-    st.info("Poznámka: Tento nástroj je určen pouze pro textové soubory (.txt) v kódování UTF-8.")
+    st.info("Poznámka: Aplikace je optimalizována pro soubory v kódování Windows-1250, které je standardem na vaší škole, ale podporuje i další kódování.")
+
 
 if __name__ == "__main__":
     main()
