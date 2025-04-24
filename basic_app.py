@@ -1,3 +1,65 @@
+import streamlit as st
+import pandas as pd
+import zipfile
+import io
+import difflib
+import os
+import tempfile
+import time
+import platform
+from openai import OpenAI
+
+def get_openai_client():
+    """Vytvoří a vrátí klienta OpenAI API."""
+    api_key = st.session_state.get('openai_api_key', '')
+    if not api_key:
+        return None
+    
+    try:
+        # Testovací volání API k ověření klíče
+        client = OpenAI(api_key=api_key)
+        # Jednoduchý test, zda API klíč funguje
+        client.models.list()
+        return client
+    except Exception as e:
+        st.error(f"Chyba při inicializaci OpenAI klienta: {str(e)}")
+        return None
+
+def analyze_text(reference_text, student_text):
+    """Použije OpenAI API pro porovnání a analýzu textů."""
+    client = get_openai_client()
+    if not client:
+        return "Pro AI analýzu je nutné zadat platný API klíč OpenAI."
+    
+    prompt = f"""
+Porovnej následující text žáka s ideálním vzorovým textem. Uveď:
+
+1. Hlavní rozdíly, chyby nebo nedostatky.
+2. Doporučení k vylepšení.
+3. Odhadni celkové hodnocení na stupnici 1 (nejhorší) až 5 (výborné).
+
+--- VZOR ---
+{reference_text}
+
+--- ŽÁK ---
+{student_text}
+
+Odpověď formuluj česky, přehledně.
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        error_message = str(e)
+        st.error(f"Chyba při komunikaci s OpenAI API: {error_message}")
+        return f"Chyba při komunikaci s OpenAI API: {error_message}"
+
 def test_openai_connection():
     """Funkce pro testování připojení k OpenAI API."""
     api_key = st.text_input("Testovací API klíč OpenAI", 
@@ -100,77 +162,15 @@ def test_openai_connection():
                 
     # Debug informace
     st.subheader("Systémové informace")
-    import platform
-    import time
     
     system_info = {
         "Python verze": platform.python_version(),
         "OS": platform.system() + " " + platform.release(),
         "Čas": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "OpenAI client": OpenAI.__version__ if hasattr(OpenAI, "__version__") else "Unknown"
+        "OpenAI client": "Unknown"
     }
     
-    st.json(system_info)import streamlit as st
-import pandas as pd
-import zipfile
-import io
-import difflib
-import os
-import tempfile
-import time
-import platform
-from openai import OpenAI
-
-def get_openai_client():
-    """Vytvoří a vrátí klienta OpenAI API."""
-    api_key = st.session_state.get('openai_api_key', '')
-    if not api_key:
-        return None
-    
-    try:
-        # Testovací volání API k ověření klíče
-        client = OpenAI(api_key=api_key)
-        # Jednoduchý test, zda API klíč funguje
-        client.models.list()
-        return client
-    except Exception as e:
-        st.error(f"Chyba při inicializaci OpenAI klienta: {str(e)}")
-        return None
-
-def analyze_text(reference_text, student_text):
-    """Použije OpenAI API pro porovnání a analýzu textů."""
-    client = get_openai_client()
-    if not client:
-        return "Pro AI analýzu je nutné zadat platný API klíč OpenAI."
-    
-    prompt = f"""
-Porovnej následující text žáka s ideálním vzorovým textem. Uveď:
-
-1. Hlavní rozdíly, chyby nebo nedostatky.
-2. Doporučení k vylepšení.
-3. Odhadni celkové hodnocení na stupnici 1 (nejhorší) až 5 (výborné).
-
---- VZOR ---
-{reference_text}
-
---- ŽÁK ---
-{student_text}
-
-Odpověď formuluj česky, přehledně.
-"""
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        error_message = str(e)
-        st.error(f"Chyba při komunikaci s OpenAI API: {error_message}")
-        return f"Chyba při komunikaci s OpenAI API: {error_message}"
+    st.json(system_info)
 
 def main():
     st.set_page_config(page_title="Porovnání žákovských prací", layout="wide")
