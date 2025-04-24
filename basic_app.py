@@ -8,24 +8,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-import pandas as pd
-import numpy as np
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-
-# Stáhnout potřebné balíčky NLTK při prvním spuštění
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
+from collections import Counter
+import math
 
 # Funkce pro předzpracování textu
 def preprocess_text(text):
@@ -40,49 +25,80 @@ def preprocess_text(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# Funkce pro výpočet podobnosti textů
-def calculate_similarity(text1, text2, method='cosine'):
+# Funkce pro výpočet podobnosti textů (vlastní implementace kosinové podobnosti)
+def calculate_similarity(text1, text2):
     # Předzpracování textů
     processed_text1 = preprocess_text(text1)
     processed_text2 = preprocess_text(text2)
     
-    # Výběr metody pro vektorizaci
-    if method == 'tfidf':
-        vectorizer = TfidfVectorizer()
-    else:  # výchozí metoda je 'cosine'
-        vectorizer = CountVectorizer()
+    # Rozdělení na slova
+    words1 = processed_text1.split()
+    words2 = processed_text2.split()
     
-    # Vektorizace textů
-    try:
-        vectors = vectorizer.fit_transform([processed_text1, processed_text2])
-        # Výpočet podobnosti
-        similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
-        return similarity
-    except Exception as e:
-        st.error(f"Chyba při výpočtu podobnosti: {e}")
+    # Vytvoření vektorů četnosti slov
+    word_set = set(words1 + words2)
+    
+    # Počítání frekvence slov
+    vec1 = {word: words1.count(word) for word in word_set}
+    vec2 = {word: words2.count(word) for word in word_set}
+    
+    # Výpočet kosinové podobnosti
+    dot_product = sum(vec1.get(word, 0) * vec2.get(word, 0) for word in word_set)
+    
+    # Velikost vektorů
+    magnitude1 = math.sqrt(sum(value ** 2 for value in vec1.values()))
+    magnitude2 = math.sqrt(sum(value ** 2 for value in vec2.values()))
+    
+    if magnitude1 == 0 or magnitude2 == 0:
         return 0
+    
+    return dot_product / (magnitude1 * magnitude2)
+
+# Funkce pro získání klíčových slov
+def get_keywords(text, top_n=10):
+    # Předzpracování textu
+    processed_text = preprocess_text(text)
+    
+    # Rozdělení na slova
+    words = processed_text.split()
+    
+    # Jednoduchý seznam stop slov pro češtinu
+    stop_words = {'a', 'aby', 'ale', 'ani', 'až', 'být', 'co', 'či', 'do', 'i', 'jak', 'je', 'jeho', 'její', 'jejich',
+                 'jen', 'jenž', 'ji', 'jich', 'již', 'jsem', 'jsou', 'k', 'kde', 'když', 'me', 'mezi', 'mi', 'mít',
+                 'mně', 'mnou', 'my', 'na', 'nad', 'nebo', 'neboť', 'než', 'ní', 'o', 'od', 'on', 'ona', 'oni', 'ono',
+                 'po', 'pod', 'podle', 'pokud', 'pro', 'proto', 'protože', 'před', 'při', 's', 'se', 'si', 'svůj',
+                 'ta', 'tak', 'také', 'takže', 'tam', 'tedy', 'ten', 'tento', 'to', 'tohle', 'toto', 'ty', 'u', 'už',
+                 'v', 've', 'však', 'všechen', 'vy', 'z', 'za', 'ze', 'že'}
+    
+    # Filtrace stop slov
+    filtered_words = [word for word in words if word not in stop_words and len(word) > 1]
+    
+    # Počítání frekvence slov
+    word_counts = Counter(filtered_words)
+    
+    # Vrácení top N slov
+    return word_counts.most_common(top_n)
 
 # Funkce pro porovnání klíčových slov
 def compare_keywords(text1, text2, top_n=10):
-    # Předzpracování textů
-    processed_text1 = preprocess_text(text1)
-    processed_text2 = preprocess_text(text2)
+    # Získání klíčových slov z obou textů
+    keywords1 = get_keywords(text1, top_n)
+    keywords2 = get_keywords(text2, top_n)
     
-    # Získání stop slov (nerelevantních slov)
-    try:
-        stop_words = set(stopwords.words('czech'))
-    except:
-        stop_words = set()  # Pokud není dostupná čeština, použijeme prázdnou množinu
+    # Převod na slovníky pro jednodušší manipulaci
+    keywords1_dict = dict(keywords1)
+    keywords2_dict = dict(keywords2)
     
-    # Tokenizace a odstranění stop slov
-    words1 = [word for word in word_tokenize(processed_text1) if word not in stop_words and len(word) > 1]
-    words2 = [word for word in word_tokenize(processed_text2) if word not in stop_words and len(word) > 1]
+    # Získání množin slov
+    words1_set = set(keywords1_dict.keys())
+    words2_set = set(keywords2_dict.keys())
     
-    # Počítání frekvence slov
-    word_freq1 = pd.Series(words1).value_counts().head(top_n)
-    word_freq2 = pd.Series(words2).value_counts().head(top_n)
+    # Nalezení společných a unikátních slov
+    common_words = words1_set.intersection(words2_set)
+    missing_words = words1_set - words2_set
+    extra_words = words2_set - words1_set
     
-    return word_freq1, word_freq2
+    return keywords1, keywords2, common_words, missing_words, extra_words
 
 # Funkce pro analýzu délky textu
 def analyze_length(text1, text2):
@@ -148,24 +164,20 @@ with tab1:
             
             # Porovnání klíčových slov
             st.subheader("Porovnání klíčových slov")
-            keywords1, keywords2 = compare_keywords(reference_text, student_text)
+            keywords1, keywords2, common_words, missing_words, extra_words = compare_keywords(reference_text, student_text)
             
             col1, col2 = st.columns(2)
             with col1:
                 st.write("**Nejčastější slova ve vzoru:**")
-                for word, count in keywords1.items():
+                for word, count in keywords1:
                     st.write(f"- {word}: {count}x")
             
             with col2:
                 st.write("**Nejčastější slova v práci žáka:**")
-                for word, count in keywords2.items():
+                for word, count in keywords2:
                     st.write(f"- {word}: {count}x")
             
             # Společná a chybějící slova
-            common_words = set(keywords1.index).intersection(set(keywords2.index))
-            missing_words = set(keywords1.index).difference(set(keywords2.index))
-            extra_words = set(keywords2.index).difference(set(keywords1.index))
-            
             col1, col2 = st.columns(2)
             with col1:
                 st.write("**Společná klíčová slova:**")
@@ -189,13 +201,6 @@ with tab2:
     
     # Nastavení analýzy
     st.subheader("Parametry textové analýzy")
-    similarity_method = st.selectbox(
-        "Metoda výpočtu podobnosti",
-        options=["cosine", "tfidf"],
-        index=0,
-        help="Kosinová podobnost je standardní metoda. TF-IDF dává větší váhu méně častým slovům."
-    )
-    
     keyword_count = st.slider(
         "Počet klíčových slov pro porovnání",
         min_value=5,
